@@ -21,7 +21,9 @@ Keep ambiguous requirements, architecture-wide decisions, security-critical chan
 
 Use successive waves. Spawn multiple children only when their work is genuinely independent. Determine wave size from the independent task count and currently available child slots; do not hard-code a primary-model-dependent limit and do not fill capacity without useful work. Keep delegation one level deep: Luna children must not spawn their own agents unless the user explicitly requests nested delegation.
 
-Parallel writers must have disjoint file ownership. Tasks that touch the same file, depend on unfinished results, or mutate shared state run sequentially. The primary agent must not edit a child's owned files while that child is active.
+Maintain a parent-side lane ledger containing each lane's task id, role, owned files, dependencies, requested effort, required/optional status, current state, and whether a final payload was received. Queue excess lanes instead of treating the configured concurrency limit as a target.
+
+Before spawning writers, inspect and record the working tree's starting state. Parallel writers must have disjoint file ownership. Tell every writer that it shares the workspace, must preserve pre-existing and concurrent changes, must not revert work it did not create, and must stop on an ownership conflict. Tasks that touch the same file, depend on unfinished results, or mutate shared state run sequentially. The primary agent must not edit a child's owned files while that child is active.
 
 ## Select Reasoning Effort Per Task
 
@@ -49,6 +51,9 @@ Relevant files:
 Context:
 <minimum architecture and behavior context>
 
+Starting state and coexistence:
+<relevant pre-existing changes, concurrent lanes, and preservation rules>
+
 Allowed reads:
 <exact paths, commands, or data sources>
 
@@ -63,6 +68,9 @@ If anything outside Allowed reads or Allowed writes is needed, stop and return B
 
 Expected result:
 <observable behavior or findings>
+
+Acceptance criteria:
+<specific requirements that must each be demonstrated>
 
 Stop when:
 <completion and verification conditions>
@@ -101,20 +109,44 @@ reasoning_effort=<selected low | medium | high | xhigh | max>
 
 Use `fork_turns="none"` by default. A small positive history fork is allowed only when essential recent context cannot be expressed compactly. Never use a full-history fork for convenience. If explicit Luna routing or the selected effort is unavailable, do not silently fall back to an inherited model; disclose the fallback and let the primary agent take over or choose a supported effort.
 
+On capacity or rate-limit errors, reduce the active wave, queue excess lanes, and retry the spawn once without changing the requested model or effort. If that fails, keep the lane with the primary agent or report the limitation; do not create an unbounded retry loop.
+
 ## Join Every Wave
 
 Record every child and whether its result is REQUIRED or OPTIONAL. Wait for all REQUIRED children to reach a terminal state before integration or dependent work. A timeout is a progress checkpoint, not failure. Inspect status before steering, and send at most one concise course correction when a child is drifting or its progress is genuinely unclear.
 
+Progress messages and status without a final payload are not completion. Attempt one targeted recovery of a missing final report using the available status or follow-up tools; if it remains missing, rerun only that lane with a narrower brief or let the primary agent take over.
+
 Do not leave children running when finalizing. If user input replaces or cancels the work, stop affected children when supported.
+
+## Handle Blocks and Effort Escalation
+
+Do not blindly rerun a blocked or failed lane. Classify the cause first:
+
+- Missing context or unclear acceptance criteria: correct the brief and retry once at the same effort.
+- Demonstrated reasoning difficulty: if the task remains bounded and suitable for Luna, retry once at the next supported effort level.
+- Scope too broad or coupled: split it into smaller independent lanes, or return it to the primary agent.
+- Architecture, safety, permissions, or environment blocker: keep the decision with the primary agent or report the blocker.
+
+If the same cause repeats after the revised attempt, stop escalating and let the primary agent take over. Never rerun completed work at a higher effort merely because confidence is low; use targeted verification instead.
+
+## Add Independent Verification When Worthwhile
+
+For medium- or higher-impact code, subtle behavior, weak test coverage, or a change whose writer raised concerns, consider a fresh read-only Luna verifier after the writer finishes. Skip this lane for mechanical changes when the primary baseline check is sufficient.
+
+Give the verifier the original requirements, acceptance criteria, relevant diff or files, and checks to run, but not the writer's conclusions. Select verifier effort independently; use the same effort as the implementation or one level higher only when the verification itself requires more reasoning. The verifier checks specification compliance first, then correctness, regressions, and test gaps. It reports evidence and never edits files.
+
+An independent Luna verifier supplements but never replaces the primary agent's final acceptance gate.
 
 ## Apply a Risk-Based Quality Gate
 
 Luna may be the primary writer for suitable delegated files. The primary agent does not redo correct work merely because Luna produced it, but it always performs a baseline acceptance check:
 
 1. Inspect the actual diff or artifact, not only the child's summary.
-2. Confirm file ownership, requested behavior, and absence of unrelated edits.
-3. Run or independently confirm the specified checks and relevant tests.
-4. Evaluate unresolved concerns and assumptions against the original request.
+2. Check every acceptance criterion before reviewing style or polish.
+3. Confirm file ownership, requested behavior, preservation of starting-state changes, and absence of unrelated edits.
+4. Run or independently confirm the specified checks and relevant tests.
+5. Evaluate unresolved concerns and assumptions against the original request.
 
 Scale additional review to risk:
 
@@ -127,7 +159,7 @@ Do not wait for a user-visible bug before reviewing. Conversely, do not spend pr
 
 ## Final Report
 
-Report the actual number of waves and children, each child's reasoning effort, material Luna-authored changes, verification performed by the primary agent, and any capacity or routing fallback. Never claim an agent or effort ran when it did not.
+Report the actual number of waves and children, each child's role and reasoning effort, material Luna-authored changes, outputs accepted, modified, or rejected, verification performed by Luna and the primary agent, any retries or effort escalation, and any capacity or routing fallback. Never claim an agent or effort ran when it did not.
 
 ```text
 User -> current primary agent -> bounded briefs with per-task effort
