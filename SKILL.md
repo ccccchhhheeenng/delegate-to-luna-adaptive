@@ -1,11 +1,11 @@
 ---
 name: delegate-to-luna-adaptive
-description: Delegate independent, bounded repository work to GPT-5.6 Luna agents while choosing each agent's reasoning effort from task complexity. Luna may implement changes; the current primary agent retains decomposition, integration, and risk-based verification. Skip trivial, ambiguous, tightly coupled, architecture-wide, and high-risk work.
+description: Delegate independent, bounded repository work to GPT-6 Luna agents while choosing each agent's reasoning effort from task complexity. Luna may implement changes; the current primary agent retains decomposition, integration, and risk-based verification. Skip trivial, ambiguous, tightly coupled, architecture-wide, and high-risk work.
 ---
 
 # Delegate to Luna Adaptive
 
-The current primary agent orchestrates this workflow regardless of its model or reasoning setting. Do not inspect, assume, require, or claim a particular primary model. This skill does not change the primary model. It explicitly routes only suitable child work to GPT-5.6 Luna and selects reasoning effort separately for every child.
+The current primary agent orchestrates this workflow regardless of its model or reasoning setting. Do not inspect, assume, require, or claim a particular primary model. This skill does not change the primary model. It explicitly routes only suitable child work to GPT-6 Luna and selects reasoning effort separately for every child.
 
 ## Workflow Precedence
 
@@ -103,7 +103,7 @@ For each delegation, set:
 
 ```text
 fork_turns="none"
-model="gpt-5.6-luna"
+model="gpt-6-luna"
 reasoning_effort=<selected low | medium | high | xhigh | max>
 ```
 
