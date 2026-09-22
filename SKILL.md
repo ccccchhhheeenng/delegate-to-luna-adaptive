@@ -13,6 +13,16 @@ When the user explicitly invokes this skill, it owns the delegation workflow for
 
 Keep this skill explicit-only in `agents/openai.yaml` so the user can choose it deliberately.
 
+## Set Verification Depth
+
+Read the verification setting from the user's request. Accept `verification=quick|standard|deep`; treat `verification=false` or `驗證=false` as `quick`, and `verification=true` as `standard`. Default to `standard` when unspecified. This is a prompt convention interpreted by the agent, not a built-in skill parameter. The setting controls verification effort, not the child's reasoning effort or the acceptance criteria.
+
+- `quick`: Use when time is tight. Skip optional tests and independent verification agents. The writer runs only checks explicitly required by the user, repository instructions, or the deliverable's format or safety constraints. The primary agent inspects the diff or artifact once, checks the acceptance criteria and file ownership, and reports behavior that was not tested.
+- `standard`: The writer runs the smallest relevant targeted checks once. The primary agent reviews the diff and the writer's evidence; it does not rerun passing checks without a specific unresolved risk. Add an independent verifier only for a concrete concern the primary agent cannot resolve with that evidence.
+- `deep`: Use when the user asks for stronger assurance or the task warrants it. Add broader relevant checks and consider an independent read-only verifier for subtle or higher-impact changes. Assign each check an owner and avoid repeating a passing check without a reason.
+
+The mode does not waive explicit user requirements, repository-required checks, or basic inspection of changed files. If a required check cannot be completed, report that limit instead of implying the change was verified. State the chosen mode before delegating so children receive the same budget.
+
 ## Decide What Luna Owns
 
 Delegate when work can be expressed as independent, bounded deliverables with observable success criteria. Luna may investigate, implement, test, debug, refactor, or document within an exact scope. Prefer delegating meaningful execution rather than using Luna only for advice.
@@ -72,11 +82,14 @@ Expected result:
 Acceptance criteria:
 <specific requirements that must each be demonstrated>
 
+Verification mode:
+quick | standard | deep
+
 Stop when:
 <completion and verification conditions>
 
 Verification:
-<specific tests, commands, or checks>
+<checks required by the mode and task, with one owner per check; state "none" when quick mode has no required checks>
 
 Result priority:
 REQUIRED | OPTIONAL
@@ -132,7 +145,7 @@ If the same cause repeats after the revised attempt, stop escalating and let the
 
 ## Add Independent Verification When Worthwhile
 
-For medium- or higher-impact code, subtle behavior, weak test coverage, or a change whose writer raised concerns, consider a fresh read-only Luna verifier after the writer finishes. Skip this lane for mechanical changes when the primary baseline check is sufficient.
+In `quick` mode, do not add an independent verifier. In `standard` mode, add one only for a concrete unresolved concern. In `deep` mode, consider a fresh read-only Luna verifier for subtle behavior, higher-impact code, weak test coverage, or a change whose writer raised concerns. Skip this lane when the primary review and existing evidence are sufficient.
 
 Give the verifier the original requirements, acceptance criteria, relevant diff or files, and checks to run, but not the writer's conclusions. Select verifier effort independently; use the same effort as the implementation or one level higher only when the verification itself requires more reasoning. The verifier checks specification compliance first, then correctness, regressions, and test gaps. It reports evidence and never edits files.
 
@@ -140,26 +153,26 @@ An independent Luna verifier supplements but never replaces the primary agent's 
 
 ## Apply a Risk-Based Quality Gate
 
-Luna may be the primary writer for suitable delegated files. The primary agent does not redo correct work merely because Luna produced it, but it always performs a baseline acceptance check:
+Luna may be the primary writer for suitable delegated files. The primary agent does not redo correct work merely because Luna produced it. For every verification mode, it performs one baseline acceptance review:
 
 1. Inspect the actual diff or artifact, not only the child's summary.
 2. Check every acceptance criterion before reviewing style or polish.
 3. Confirm file ownership, requested behavior, preservation of starting-state changes, and absence of unrelated edits.
-4. Run or independently confirm the specified checks and relevant tests.
+4. Inspect the results of checks assigned to the writer or verifier; rerun only a missing or failed check, or one affected by a concrete new risk.
 5. Evaluate unresolved concerns and assumptions against the original request.
 
-Scale additional review to risk:
+Scale work beyond that baseline to the chosen mode and actual risk:
 
-- Low-risk, mechanical work may be accepted after the baseline check passes.
-- Ordinary implementation receives targeted logic and regression review.
-- Subtle or higher-impact work receives deeper primary review and additional verification.
-- Failed checks, suspicious logic, scope violations, or material uncertainty trigger primary-agent repair or one focused sequential Luna follow-up.
+- `quick`: Stop after the baseline review and any mandatory checks; disclose skipped behavior tests.
+- `standard`: Review ordinary implementation logic and regressions against the targeted checks already run.
+- `deep`: Review subtle or higher-impact logic in more detail and use additional verification where it adds evidence.
+- In any mode, failed checks, suspicious logic, scope violations, or material uncertainty require a focused repair or follow-up before claiming completion.
 
 Do not wait for a user-visible bug before reviewing. Conversely, do not spend primary-model tokens reimplementing a change that has passed proportionate verification. Keep critical architecture and high-risk corrections with the primary agent.
 
 ## Final Report
 
-Report the actual number of waves and children, each child's role and reasoning effort, material Luna-authored changes, outputs accepted, modified, or rejected, verification performed by Luna and the primary agent, any retries or effort escalation, and any capacity or routing fallback. Never claim an agent or effort ran when it did not.
+Report the verification mode, actual number of waves and children, each child's role and reasoning effort, material Luna-authored changes, outputs accepted, modified, or rejected, checks performed and skipped, any retries or effort escalation, and any capacity or routing fallback. Never claim an agent, effort, or check ran when it did not.
 
 ```text
 User -> current primary agent -> bounded briefs with per-task effort
