@@ -27,21 +27,23 @@ The mode does not waive explicit user requirements, repository-required checks, 
 
 Delegate when work can be expressed as independent, bounded deliverables with observable success criteria. Luna may investigate, implement, test, debug, refactor, or document within an exact scope. Prefer delegating meaningful execution rather than using Luna only for advice.
 
+Before drafting a brief, compare the likely work with the cost of spawning, waiting for, and reviewing a child. Handle a small task directly when coordination is likely to take longer, unless the user specifically asks Luna to do the work. Invoking this skill selects its workflow but does not require a spawn for every task.
+
 Keep ambiguous requirements, architecture-wide decisions, security-critical changes, irreversible migrations, and tightly coupled cross-cutting work with the primary agent. A higher reasoning effort does not make an unsuitable task suitable for Luna.
 
 Use successive waves. Spawn multiple children only when their work is genuinely independent. Determine wave size from the independent task count and currently available child slots; do not hard-code a primary-model-dependent limit and do not fill capacity without useful work. Keep delegation one level deep: Luna children must not spawn their own agents unless the user explicitly requests nested delegation.
 
-Maintain a parent-side lane ledger containing each lane's task id, role, owned files, dependencies, requested effort, required/optional status, current state, and whether a final payload was received. Queue excess lanes instead of treating the configured concurrency limit as a target.
+Track each active child's id, owned files, effort, priority, and completion state. Add dependency and coexistence details when multiple lanes need coordination. Queue excess lanes instead of treating the configured concurrency limit as a target.
 
 Before spawning writers, inspect and record the working tree's starting state. Parallel writers must have disjoint file ownership. Tell every writer that it shares the workspace, must preserve pre-existing and concurrent changes, must not revert work it did not create, and must stop on an ownership conflict. Tasks that touch the same file, depend on unfinished results, or mutate shared state run sequentially. The primary agent must not edit a child's owned files while that child is active.
 
 ## Select Reasoning Effort Per Task
 
-Inspect the live `spawn_agent` schema and explicitly set the model and reasoning effort for every child. Choose the lowest effort that is credible for the task, based on reasoning complexity and verification burden rather than file count alone:
+Inspect the live `spawn_agent` schema and explicitly set the model and reasoning effort for every child. Accept `effort=low|medium|high|xhigh|max` in the user's request; when present, use that supported effort for suitable delegated work. Otherwise choose the lowest credible effort from task complexity, not file count or verification mode:
 
 - `low`: clerical or deterministic read-only work with almost no inference. Avoid for production-code changes.
-- `medium`: repository mapping, reference searches, documentation, simple tests, and mechanical changes with strong local patterns.
-- `high`: default for bounded implementation, debugging, refactoring, test design, and review that requires following non-trivial logic.
+- `medium`: repository mapping, documentation, simple tests, and bounded code changes with clear requirements and strong local patterns.
+- `high`: implementation, debugging, refactoring, test design, or review that requires following non-trivial logic.
 - `xhigh`: difficult multi-file tracing, subtle state behavior, concurrency analysis, or edge cases that remain clearly bounded.
 - `max`: exceptional bounded work requiring Luna's deepest available reasoning. Do not use it by default or as a substitute for primary ownership of ambiguous or high-risk work.
 
@@ -49,20 +51,14 @@ Different children in the same wave may use different efforts. If the task remai
 
 ## Build a Compact Task Brief
 
-The primary agent reads enough authoritative context to define the boundary, then sends only the context the child needs. Every brief includes:
+The primary agent identifies the task boundary and starting state, then leaves scoped implementation discovery to the child. Do not repeat the child's file analysis. Keep each brief short while including:
 
 ```text
 Goal:
 <one primary deliverable>
 
-Relevant files:
-<exact files or narrowly scoped directories>
-
 Context:
-<minimum architecture and behavior context>
-
-Starting state and coexistence:
-<relevant pre-existing changes, concurrent lanes, and preservation rules>
+<minimum behavior context and relevant starting-state changes; include concurrent lanes for writers>
 
 Allowed reads:
 <exact paths, commands, or data sources>
@@ -70,26 +66,14 @@ Allowed reads:
 Allowed writes:
 <exact files exclusively owned by this child, or "none">
 
-Do not:
-<prohibited files, systems, actions, and scope>
+Boundaries:
+<prohibited actions; stop and return BLOCKED with the missing scope and reason if work needs other reads or writes>
 
-Scope expansion gate:
-If anything outside Allowed reads or Allowed writes is needed, stop and return BLOCKED with the missing scope and reason.
-
-Expected result:
-<observable behavior or findings>
-
-Acceptance criteria:
-<specific requirements that must each be demonstrated>
-
-Verification mode:
-quick | standard | deep
-
-Stop when:
-<completion and verification conditions>
+Acceptance and stop:
+<observable result and conditions for stopping>
 
 Verification:
-<checks required by the mode and task, with one owner per check; state "none" when quick mode has no required checks>
+<quick | standard | deep; checks and one owner per check, or "none" when quick has no required checks>
 
 Result priority:
 REQUIRED | OPTIONAL
@@ -97,17 +81,14 @@ REQUIRED | OPTIONAL
 
 Do not include unrelated chat history. A child stops after the requested result and verification instead of adding opportunistic work.
 
-Require this return contract:
+Require this short return contract; include paths, commands, or output only when needed to substantiate a concern or required check:
 
 ```text
 Status: DONE | DONE_WITH_CONCERNS | BLOCKED | FAILED
-Reasoning effort used: low | medium | high | xhigh | max
-Changed files: <paths or none>
-Behavior implemented or Findings: <summary>
-Tests/checks run: <commands and outcomes>
-Assumptions: <assumptions or none>
-Unresolved issues: <issues or none>
-Evidence: <paths, commands, outputs, or hashes>
+Files: <changed paths or none>
+Result: <behavior or findings>
+Checks: <commands and outcomes, or none>
+Concern: <unresolved issue or material assumption, or none>
 ```
 
 ## Spawn Luna Explicitly
@@ -128,7 +109,7 @@ On capacity or rate-limit errors, reduce the active wave, queue excess lanes, an
 
 Record every child and whether its result is REQUIRED or OPTIONAL. Wait for all REQUIRED children to reach a terminal state before integration or dependent work. A timeout is a progress checkpoint, not failure. Inspect status before steering, and send at most one concise course correction when a child is drifting or its progress is genuinely unclear.
 
-Progress messages and status without a final payload are not completion. Attempt one targeted recovery of a missing final report using the available status or follow-up tools; if it remains missing, rerun only that lane with a narrower brief or let the primary agent take over.
+Progress messages do not complete a running child. If a terminal child lacks a final report, attempt one targeted recovery, then inspect the artifact and checks. Accept it only when the primary agent can establish completion through the baseline gate; otherwise assign only the missing part or take it over.
 
 Do not leave children running when finalizing. If user input replaces or cancels the work, stop affected children when supported.
 
@@ -136,8 +117,8 @@ Do not leave children running when finalizing. If user input replaces or cancels
 
 Do not blindly rerun a blocked or failed lane. Classify the cause first:
 
-- Missing context or unclear acceptance criteria: correct the brief and retry once at the same effort.
-- Demonstrated reasoning difficulty: if the task remains bounded and suitable for Luna, retry once at the next supported effort level.
+- Missing context or unclear acceptance criteria: correct the brief and retry only unfinished work once at the same effort.
+- Demonstrated reasoning difficulty: if the remaining work is bounded and suitable for Luna, retry that part once at the next supported effort level.
 - Scope too broad or coupled: split it into smaller independent lanes, or return it to the primary agent.
 - Architecture, safety, permissions, or environment blocker: keep the decision with the primary agent or report the blocker.
 
@@ -172,7 +153,7 @@ Do not wait for a user-visible bug before reviewing. Conversely, do not spend pr
 
 ## Final Report
 
-Report the verification mode, actual number of waves and children, each child's role and reasoning effort, material Luna-authored changes, outputs accepted, modified, or rejected, checks performed and skipped, any retries or effort escalation, and any capacity or routing fallback. Never claim an agent, effort, or check ran when it did not.
+Briefly report the result, verification mode, actual child count and efforts, changed files, checks performed or skipped, and material concerns. Mention retries or capacity limits only when they occurred; provide lane-by-lane detail for `deep` mode or on request. Never claim an agent, effort, or check ran when it did not.
 
 ```text
 User -> current primary agent -> bounded briefs with per-task effort
