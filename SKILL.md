@@ -1,0 +1,136 @@
+---
+name: delegate-to-luna-adaptive
+description: Delegate independent, bounded repository work to GPT-5.6 Luna agents while choosing each agent's reasoning effort from task complexity. Luna may implement changes; the current primary agent retains decomposition, integration, and risk-based verification. Skip trivial, ambiguous, tightly coupled, architecture-wide, and high-risk work.
+---
+
+# Delegate to Luna Adaptive
+
+The current primary agent orchestrates this workflow regardless of its model or reasoning setting. Do not inspect, assume, require, or claim a particular primary model. This skill does not change the primary model. It explicitly routes only suitable child work to GPT-5.6 Luna and selects reasoning effort separately for every child.
+
+## Workflow Precedence
+
+When the user explicitly invokes this skill, it owns the delegation workflow for that turn. Do not also apply `$delegate-to-luna-max` or `$luna-task-owner` to the same work. If the user explicitly selects another delegation skill instead, follow that skill.
+
+Keep this skill explicit-only in `agents/openai.yaml` so the user can choose it deliberately.
+
+## Decide What Luna Owns
+
+Delegate when work can be expressed as independent, bounded deliverables with observable success criteria. Luna may investigate, implement, test, debug, refactor, or document within an exact scope. Prefer delegating meaningful execution rather than using Luna only for advice.
+
+Keep ambiguous requirements, architecture-wide decisions, security-critical changes, irreversible migrations, and tightly coupled cross-cutting work with the primary agent. A higher reasoning effort does not make an unsuitable task suitable for Luna.
+
+Use successive waves. Spawn multiple children only when their work is genuinely independent. Determine wave size from the independent task count and currently available child slots; do not hard-code a primary-model-dependent limit and do not fill capacity without useful work. Keep delegation one level deep: Luna children must not spawn their own agents unless the user explicitly requests nested delegation.
+
+Parallel writers must have disjoint file ownership. Tasks that touch the same file, depend on unfinished results, or mutate shared state run sequentially. The primary agent must not edit a child's owned files while that child is active.
+
+## Select Reasoning Effort Per Task
+
+Inspect the live `spawn_agent` schema and explicitly set the model and reasoning effort for every child. Choose the lowest effort that is credible for the task, based on reasoning complexity and verification burden rather than file count alone:
+
+- `low`: clerical or deterministic read-only work with almost no inference. Avoid for production-code changes.
+- `medium`: repository mapping, reference searches, documentation, simple tests, and mechanical changes with strong local patterns.
+- `high`: default for bounded implementation, debugging, refactoring, test design, and review that requires following non-trivial logic.
+- `xhigh`: difficult multi-file tracing, subtle state behavior, concurrency analysis, or edge cases that remain clearly bounded.
+- `max`: exceptional bounded work requiring Luna's deepest available reasoning. Do not use it by default or as a substitute for primary ownership of ambiguous or high-risk work.
+
+Different children in the same wave may use different efforts. If the task remains unsuitable even at `max`, keep it with the primary agent.
+
+## Build a Compact Task Brief
+
+The primary agent reads enough authoritative context to define the boundary, then sends only the context the child needs. Every brief includes:
+
+```text
+Goal:
+<one primary deliverable>
+
+Relevant files:
+<exact files or narrowly scoped directories>
+
+Context:
+<minimum architecture and behavior context>
+
+Allowed reads:
+<exact paths, commands, or data sources>
+
+Allowed writes:
+<exact files exclusively owned by this child, or "none">
+
+Do not:
+<prohibited files, systems, actions, and scope>
+
+Scope expansion gate:
+If anything outside Allowed reads or Allowed writes is needed, stop and return BLOCKED with the missing scope and reason.
+
+Expected result:
+<observable behavior or findings>
+
+Stop when:
+<completion and verification conditions>
+
+Verification:
+<specific tests, commands, or checks>
+
+Result priority:
+REQUIRED | OPTIONAL
+```
+
+Do not include unrelated chat history. A child stops after the requested result and verification instead of adding opportunistic work.
+
+Require this return contract:
+
+```text
+Status: DONE | DONE_WITH_CONCERNS | BLOCKED | FAILED
+Reasoning effort used: low | medium | high | xhigh | max
+Changed files: <paths or none>
+Behavior implemented or Findings: <summary>
+Tests/checks run: <commands and outcomes>
+Assumptions: <assumptions or none>
+Unresolved issues: <issues or none>
+Evidence: <paths, commands, outputs, or hashes>
+```
+
+## Spawn Luna Explicitly
+
+For each delegation, set:
+
+```text
+fork_turns="none"
+model="gpt-5.6-luna"
+reasoning_effort=<selected low | medium | high | xhigh | max>
+```
+
+Use `fork_turns="none"` by default. A small positive history fork is allowed only when essential recent context cannot be expressed compactly. Never use a full-history fork for convenience. If explicit Luna routing or the selected effort is unavailable, do not silently fall back to an inherited model; disclose the fallback and let the primary agent take over or choose a supported effort.
+
+## Join Every Wave
+
+Record every child and whether its result is REQUIRED or OPTIONAL. Wait for all REQUIRED children to reach a terminal state before integration or dependent work. A timeout is a progress checkpoint, not failure. Inspect status before steering, and send at most one concise course correction when a child is drifting or its progress is genuinely unclear.
+
+Do not leave children running when finalizing. If user input replaces or cancels the work, stop affected children when supported.
+
+## Apply a Risk-Based Quality Gate
+
+Luna may be the primary writer for suitable delegated files. The primary agent does not redo correct work merely because Luna produced it, but it always performs a baseline acceptance check:
+
+1. Inspect the actual diff or artifact, not only the child's summary.
+2. Confirm file ownership, requested behavior, and absence of unrelated edits.
+3. Run or independently confirm the specified checks and relevant tests.
+4. Evaluate unresolved concerns and assumptions against the original request.
+
+Scale additional review to risk:
+
+- Low-risk, mechanical work may be accepted after the baseline check passes.
+- Ordinary implementation receives targeted logic and regression review.
+- Subtle or higher-impact work receives deeper primary review and additional verification.
+- Failed checks, suspicious logic, scope violations, or material uncertainty trigger primary-agent repair or one focused sequential Luna follow-up.
+
+Do not wait for a user-visible bug before reviewing. Conversely, do not spend primary-model tokens reimplementing a change that has passed proportionate verification. Keep critical architecture and high-risk corrections with the primary agent.
+
+## Final Report
+
+Report the actual number of waves and children, each child's reasoning effort, material Luna-authored changes, verification performed by the primary agent, and any capacity or routing fallback. Never claim an agent or effort ran when it did not.
+
+```text
+User -> current primary agent -> bounded briefs with per-task effort
+     -> one or more independent Luna writers/investigators
+     -> joined results -> risk-based primary verification and integration
+```

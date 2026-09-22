@@ -1,0 +1,7 @@
+interface:
+  display_name: "Delegate to Luna Adaptive"
+  short_description: "Dynamically route bounded work to Luna agents"
+  default_prompt: "Use $delegate-to-luna-adaptive to delegate suitable repository work to Luna agents with task-specific reasoning effort."
+
+policy:
+  allow_implicit_invocation: false
